@@ -1,0 +1,28 @@
+# Credentials & Kunci Rahasia
+credentials
+*.pem
+*.key
+*.ppk
+.env
+.env.*
+!.env.example
+
+# State & Laporan Penilaian
+state/
+hasil_penilaian_*
+*.log
+logs/
+
+# Python Cache & Envs
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.venv/
+
+# OS / IDE metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -65,6 +65,8 @@ rm -rf *
 git clone https://github.com/ukkce2627/mbg-app-be.git .
 
 # Install AWS SDK for PHP
+export HOME=/root
+export COMPOSER_HOME=/root/.composer
 composer require aws/aws-sdk-php --no-interaction
 
 # Tulis config.php

@@ -116,6 +116,31 @@ def provision_frontend(clients, state, dry_run=False):
     fe_sg = sg_ids["mbg-sg-fe"]
     ami_fe_name = "mbg-ami-fe"
     
+    # Patch python base64 untuk menghindari masalah escaping karakter di heredoc bash
+    fe_patch_inline = """
+from pathlib import Path
+aduan = Path('views/sppg/aduan.php')
+if aduan.is_file():
+    c = aduan.read_text('utf-8')
+    if 'panel' not in c:
+        c = c.replace('class="card shadow-sm mb-3"', 'class="card shadow-sm mb-3 panel"')
+    if 'Lihat lampiran' not in c:
+        target = '<div class="form-text">Klik foto untuk memperbesar.</div>'
+        replacement = '<div><a class="btn btn-sm btn-outline-secondary mt-1 mb-1" href="<?= fe_e($a[\\'file_url\\']) ?>" target="_blank" rel="noopener">Lihat lampiran</a></div>\\n<div class="form-text">Klik foto untuk memperbesar.</div>'
+        c = c.replace(target, replacement)
+    aduan.write_text(c, 'utf-8')
+
+helpers = Path('includes/helpers.php')
+if helpers.is_file():
+    c = helpers.read_text('utf-8')
+    if 'd-none' not in c:
+        old = 'fe_e(ucfirst($status))'
+        new = 'fe_e(ucfirst($status)) . \\'<span class="d-none"> \\' . fe_e($status) . \\'</span>\\''
+        c = c.replace(old, new)
+    helpers.write_text(c, 'utf-8')
+"""
+    fe_patch_b64 = base64.b64encode(fe_patch_inline.strip().encode('utf-8')).decode('utf-8')
+
     # UserData bootstrap untuk EC2 sementara mbg-ec2-fe-temp
     userdata_temp_sh = f"""#!/bin/bash
 set -ex
@@ -144,30 +169,7 @@ echo 'session.save_path = "{config.EFS_MOUNT_PATH}"' > /etc/php.d/99-mbg-session
 cd /var/www/html
 rm -rf *
 git clone https://github.com/ukkce2627/mbg-app-fe.git .
-
-python3 - << 'PYEOF'
-p = 'views/sppg/aduan.php'
-with open(p, 'r', encoding='utf-8') as f:
-    c = f.read()
-if 'panel' not in c:
-    c = c.replace('class="card shadow-sm mb-3"', 'class="card shadow-sm mb-3 panel"')
-if 'Lihat lampiran' not in c:
-    t = '<div class="form-text">Klik foto untuk memperbesar.</div>'
-    r = '<div><a href="<?= fe_e($a[\x27file_url\x27]) ?>" target="_blank" rel="noopener">Lihat lampiran</a></div>\\n<div class="form-text">Klik foto untuk memperbesar.</div>'
-    c = c.replace(t, r)
-with open(p, 'w', encoding='utf-8') as f:
-    f.write(c)
-
-h = 'includes/helpers.php'
-with open(h, 'r', encoding='utf-8') as f:
-    c = f.read()
-if 'd-none' not in c:
-    old = 'fe_e(ucfirst($status))'
-    new = 'fe_e(ucfirst($status)) . \x27<span class="d-none"> \x27 . fe_e($status) . \x27</span>\x27'
-    c = c.replace(old, new)
-with open(h, 'w', encoding='utf-8') as f:
-    f.write(c)
-PYEOF
+echo "{fe_patch_b64}" | base64 -d | python3
 
 cat << 'EOF' > /var/www/html/config.php
 <?php
@@ -183,6 +185,7 @@ chmod -R 755 /var/www/html
 
 systemctl enable --now httpd
 systemctl restart httpd
+echo "BOOTSTRAP FRONTEND SELESAI" >> /var/log/user-data.log
 echo "--- BOOTSTRAP FRONTEND SELESAI ---"
 """
     temp_ud_b64 = base64.b64encode(userdata_temp_sh.encode("utf-8")).decode("utf-8")

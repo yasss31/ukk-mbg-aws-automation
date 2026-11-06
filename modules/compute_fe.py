@@ -137,6 +137,7 @@ mount -a
 # Permission shared session & PHP session.save_path
 chown -R apache:apache {config.EFS_MOUNT_PATH}
 chmod 777 {config.EFS_MOUNT_PATH}
+sed -i 's|^;*session.save_path =.*|session.save_path = "{config.EFS_MOUNT_PATH}"|g' /etc/php.ini
 echo 'session.save_path = "{config.EFS_MOUNT_PATH}"' > /etc/php.d/99-mbg-session.ini
 
 # Clone & Patch Front End Repo
@@ -269,22 +270,27 @@ systemctl restart httpd
                     cmd = ssm.send_command(
                         InstanceIds=[temp_id],
                         DocumentName="AWS-RunShellScript",
-                        Parameters={"commands": ['grep -q "BOOTSTRAP FRONTEND SELESAI" /var/log/user-data.log && echo "DONE" || echo "WAIT"']}
+                        Parameters={"commands": [
+                            'grep -q "BOOTSTRAP FRONTEND SELESAI" /var/log/user-data.log && echo "DONE" || echo "WAIT"',
+                            'php -r \'echo ini_get("session.save_path");\'',
+                            'curl -s -o /dev/null -w "%{http_code}" http://localhost/health.php'
+                        ]}
                     )
                     cid = cmd["Command"]["CommandId"]
-                    time.sleep(3)
+                    time.sleep(4)
                     out = ssm.get_command_invocation(CommandId=cid, InstanceId=temp_id)
-                    if "DONE" in out.get("StandardOutputContent", ""):
-                        print("  [OK] Bootstrap Front End pada mbg-ec2-fe-temp SELESAI 100%!")
+                    stdout = out.get("StandardOutputContent", "")
+                    if "DONE" in stdout and "200" in stdout and config.EFS_MOUNT_PATH in stdout:
+                        print(f"  [OK] Bootstrap Front End & verifikasi health/session pada {temp_id} SUKSES 100%!")
                         bootstrap_done = True
                         break
                     else:
-                        print(f"      [{attempt+1}/40] Bootstrap masih berjalan...")
+                        print(f"      [{attempt+1}/40] Bootstrap masih berjalan (output: {stdout.strip()[:60]})...")
                 except Exception as ex:
                     print(f"      [{attempt+1}/40] Menunggu proses bootstrap: {ex}")
 
             if not bootstrap_done:
-                print("  [WARN] Bootstrap belum memberikan sinyal selesai, melanjutkan pembuatan AMI...")
+                raise RuntimeError(f"FATAL: Bootstrap Front End pada EC2 sementara {temp_id} gagal atau timeout sebelum pembuatan AMI!")
 
             # Buat Custom AMI mbg-ami-fe
             print(f"  [CREATE] Membuat Custom Image (AMI) {ami_fe_name} dari {temp_id}...")

@@ -68,7 +68,6 @@ SECURITY_GROUPS = {
     "mbg-sg-efs": {
         "desc": "Security group untuk EFS Mount Targets",
         "rules": [
-            {"protocol": "tcp", "from_port": 2049, "to_port": 2049, "cidr": "0.0.0.0/0"},
             {"protocol": "tcp", "from_port": 2049, "to_port": 2049, "source_sg": "mbg-sg-fe"},
         ],
     },

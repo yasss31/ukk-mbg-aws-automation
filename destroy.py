@@ -190,6 +190,48 @@ def destroy_frontend(clients, state, dry_run=False, logger=None):
     else:
         log(f"  [SKIPPED] Launch Template {lt_name} sudah tidak ada.")
 
+    # 5. EC2 Frontend Sementara (mbg-ec2-fe-temp)
+    temp_res = ec2.describe_instances(Filters=[
+        {"Name": "tag:Name", "Values": ["mbg-ec2-fe-temp"]},
+        {"Name": "instance-state-name", "Values": ["pending", "running", "stopped", "stopping"]}
+    ])
+    temp_insts = [i["InstanceId"] for r in temp_res["Reservations"] for i in r["Instances"]]
+    if temp_insts:
+        if dry_run:
+            log(f"  [PLAN] Akan menterminate EC2 sementara mbg-ec2-fe-temp: {temp_insts}")
+        else:
+            log(f"  [DELETE] Menterminate EC2 sementara mbg-ec2-fe-temp {temp_insts}...")
+            ec2.terminate_instances(InstanceIds=temp_insts)
+            log("  [WAIT] Menunggu mbg-ec2-fe-temp terminated...")
+            try:
+                ec2.get_waiter("instance_terminated").wait(InstanceIds=temp_insts)
+            except Exception:
+                pass
+            log("  [OK] EC2 sementara mbg-ec2-fe-temp berhasil di-terminate.")
+
+    # 6. Custom AMI (mbg-ami-fe) dan snapshot EBS terkait
+    amis = ec2.describe_images(Owners=["self"], Filters=[{"Name": "name", "Values": ["mbg-ami-fe"]}])["Images"]
+    for a in amis:
+        ami_id = a["ImageId"]
+        snaps = [
+            bd["Ebs"]["SnapshotId"]
+            for bd in a.get("BlockDeviceMappings", [])
+            if "Ebs" in bd and "SnapshotId" in bd["Ebs"]
+        ]
+        if dry_run:
+            log(f"  [PLAN] Akan menderegister AMI {ami_id} (mbg-ami-fe) dan menghapus snapshot {snaps}")
+        else:
+            log(f"  [DELETE] Menderegister AMI {ami_id} (mbg-ami-fe)...")
+            ec2.deregister_image(ImageId=ami_id)
+            log(f"  [OK] AMI {ami_id} dideregister.")
+            for s in snaps:
+                try:
+                    log(f"  [DELETE] Menghapus snapshot {s}...")
+                    ec2.delete_snapshot(SnapshotId=s)
+                    log(f"  [OK] Snapshot {s} dihapus.")
+                except Exception as ex:
+                    log(f"  [WARN] Gagal menghapus snapshot {s}: {ex}")
+
     return True
 
 

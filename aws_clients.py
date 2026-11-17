@@ -38,6 +38,7 @@ class AWSClients:
         self.ssm = self.session.client("ssm", config=_boto_config)
         self.sts = self.session.client("sts", config=_boto_config)
         self.cw = self.session.client("cloudwatch", config=_boto_config)
+        self.cloudwatch = self.cw
         
         self._verify_identity(allow_offline=allow_offline)
 
